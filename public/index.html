@@ -434,7 +434,7 @@
     </div>
     <div class="panel">
       <h2>ルームコード</h2>
-      <input id="roomInput" type="text" placeholder="既存ルームのコード（空なら新規作成）" maxlength="6" autocomplete="off" style="text-transform:uppercase;letter-spacing:2px;">
+      <input id="roomInput" type="text" placeholder="既存ルームのコード（空なら新規作成）" maxlength="6" autocomplete="off" value="KK2022" style="text-transform:uppercase;letter-spacing:2px;">
     </div>
     <button class="btn btn-primary" id="enterBtn">JOIN</button>
   </div>
@@ -454,16 +454,6 @@
       <button class="btn btn-primary" id="startBtn" style="display:none">START</button>
       <button class="btn btn-ghost" id="leaveBtn">退出</button>
     </div>
-  </div>
-
-  <!-- ===== COUNTDOWN ===== -->
-  <div class="screen countdown-screen" id="countdownScreen">
-    <div class="countdown-instruction">
-      <strong>スマホを額に当ててください</strong>
-      画面を外側に向けて、自分の手札を他のプレイヤーに見せる<br>
-      共通カード7枚は画面上に表示されます
-    </div>
-    <div class="countdown-number" id="countdownNumber">10</div>
   </div>
 
   <!-- ===== OBSERVATION ===== -->
@@ -512,7 +502,7 @@
 
 // ===== State =====
 const PHASES = {
-  LOBBY: "lobby", COUNTDOWN: "countdown", OBSERVATION: "observation",
+  LOBBY: "lobby", OBSERVATION: "observation",
   DECISION: "decision", REVEAL: "reveal",
 };
 const STORAGE_KEY = "atlantic_v1";
@@ -652,7 +642,6 @@ function onStateUpdate() {
   const phase = serverState.phase;
   switch (phase) {
     case PHASES.LOBBY: renderLobby(); break;
-    case PHASES.COUNTDOWN: renderCountdown(); break;
     case PHASES.OBSERVATION: renderObservation(); break;
     case PHASES.DECISION: renderDecision(); break;
     case PHASES.REVEAL: renderReveal(); break;
@@ -688,18 +677,6 @@ function renderLobby() {
     startBtn.style.display = "none";
     status.textContent = "ホストの開始を待っています";
   }
-}
-
-// ===== Countdown =====
-function renderCountdown() {
-  showScreen("countdown");
-  cleanupTimers();
-  const update = () => {
-    const remain = Math.max(0, Math.ceil((serverState.phaseEndAt - Date.now()) / 1000));
-    $("countdownNumber").textContent = remain;
-  };
-  update();
-  timerInterval = setInterval(update, 200);
 }
 
 // ===== Observation =====

@@ -1,13 +1,11 @@
 // ===== Constants =====
 const PHASES = {
   LOBBY: "lobby",
-  COUNTDOWN: "countdown",
   OBSERVATION: "observation",
   DECISION: "decision",
   REVEAL: "reveal",
 };
-const COUNTDOWN_MS = 10_000;
-const OBSERVATION_MS = 45_000;
+const OBSERVATION_MS = 20_000;
 const MAX_PLAYERS = 8;
 
 const SUITS = [
@@ -214,7 +212,7 @@ export class GameRoom {
       case "start":
         if (playerId === this.hostId && this.phase === PHASES.LOBBY) {
           if (this.players.size < 2) return;
-          this.startCountdown();
+          this.startObservation();
         }
         break;
       case "decision":
@@ -264,26 +262,14 @@ export class GameRoom {
     this.broadcast();
   }
 
-  startCountdown() {
-    this.phase = PHASES.COUNTDOWN;
-    this.phaseEndAt = Date.now() + COUNTDOWN_MS;
-    this.lastResult = null;
-    this.community = [];
-    for (const p of this.players.values()) {
-      p.hole = null;
-      p.decision = null;
-    }
-    this.clearTimer();
-    this.timer = setTimeout(() => this.startObservation(), COUNTDOWN_MS);
-    this.broadcast();
-  }
-
   startObservation() {
     this.phase = PHASES.OBSERVATION;
     this.phaseEndAt = Date.now() + OBSERVATION_MS;
+    this.lastResult = null;
     const deck = buildDeck();
     for (const p of this.players.values()) {
       p.hole = [deck.pop(), deck.pop()];
+      p.decision = null;
     }
     this.community = [];
     for (let i = 0; i < 7; i++) this.community.push(deck.pop());
