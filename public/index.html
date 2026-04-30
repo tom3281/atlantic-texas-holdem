@@ -376,6 +376,97 @@
   }
   .footer-actions { margin-top: auto; padding-top: 12px; }
 
+  /* ---------- Rules overlay ---------- */
+  .rules-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    background: rgba(0,0,0,0.85);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    padding: 32px 18px;
+    overflow-y: auto;
+    cursor: pointer;
+  }
+  .rules-overlay.show { display: flex; }
+  .rules-card {
+    background: linear-gradient(180deg, #1a4a28, #0a3018);
+    border: 1px solid rgba(240,200,80,0.4);
+    border-radius: 14px;
+    padding: 22px 20px 14px;
+    max-width: 460px;
+    width: 100%;
+    box-shadow: 0 24px 50px rgba(0,0,0,0.6);
+    cursor: default;
+  }
+  .rules-card h2 {
+    font-size: 15px;
+    letter-spacing: 6px;
+    color: #ffd76e;
+    text-align: center;
+    margin: 0 0 16px;
+    font-weight: 800;
+  }
+  .rules-card dl {
+    font-size: 13px;
+    line-height: 1.7;
+    font-family: -apple-system, "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+    letter-spacing: 0.04em;
+  }
+  .rules-card dt {
+    font-weight: 700;
+    color: #ffd76e;
+    margin-top: 14px;
+    letter-spacing: 2px;
+    font-size: 12px;
+  }
+  .rules-card dt:first-child { margin-top: 0; }
+  .rules-card dd {
+    padding-left: 10px;
+    color: rgba(255,255,255,0.88);
+    margin-bottom: 2px;
+  }
+  .rules-card dd b { color: #ffd76e; font-weight: 700; }
+  .rules-card .ranks {
+    margin-top: 4px;
+    padding: 8px 10px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(240,200,80,0.18);
+    border-radius: 8px;
+    font-size: 11px;
+    line-height: 1.6;
+    letter-spacing: 0.05em;
+  }
+  .rules-card .close-hint {
+    margin-top: 14px;
+    text-align: center;
+    font-size: 10px;
+    letter-spacing: 4px;
+    color: rgba(255,255,255,0.5);
+    animation: blink 1.6s ease-in-out infinite;
+  }
+
+  /* link-style button */
+  .btn-link-text {
+    display: block;
+    width: 100%;
+    margin-top: 12px;
+    background: transparent;
+    border: none;
+    color: rgba(255,215,110,0.7);
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 4px;
+    cursor: pointer;
+    padding: 8px;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+  .btn-link-text:active { color: #ffd76e; }
+
   /* Toast */
   .toast {
     position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
@@ -416,6 +507,39 @@
       <input id="roomInput" type="text" placeholder="既存ルームのコード（空なら新規作成）" maxlength="6" autocomplete="off" value="KK2022" style="text-transform:uppercase;letter-spacing:2px;">
     </div>
     <button class="btn btn-primary" id="enterBtn">JOIN</button>
+    <button class="btn-link-text" id="rulesBtn">ルールを見る</button>
+  </div>
+
+  <!-- ===== RULES OVERLAY ===== -->
+  <div class="rules-overlay" id="rulesOverlay">
+    <div class="rules-card" id="rulesCard">
+      <h2>RULES</h2>
+      <dl>
+        <dt>進行</dt>
+        <dd>各自スマホで同じルームコードに JOIN。ロビーで全員揃ったらホストが START。</dd>
+
+        <dt>配り</dt>
+        <dd>自分の手札 <b>2枚</b>（自分だけ見える）と、場の共通カード <b>7枚</b>（全員見える）。</dd>
+
+        <dt>判断（15秒）</dt>
+        <dd>共通7枚＋自分の手札2枚を見て <b>勝負</b> か <b>フォールド</b> を選ぶ。<br>時間切れは <b>自動フォールド</b>。</dd>
+
+        <dt>勝者</dt>
+        <dd>勝負した人のうち、9枚（手札2＋場7）から作れる <b>最強の5枚役</b> を持つ人が勝ち。</dd>
+
+        <dt>飲み杯数</dt>
+        <dd>勝負して <b>負けた人</b> → 勝負した人数 × 1杯</dd>
+        <dd>勝負して <b>勝った人</b> → 0杯</dd>
+        <dd>フォールドした人 → 1杯</dd>
+        <dd>全員フォールド → 全員 1杯</dd>
+
+        <dt>役の強さ（強→弱）</dt>
+        <dd class="ranks">
+          ロイヤルフラッシュ → ストレートフラッシュ → フォーカード → フルハウス → フラッシュ → ストレート → スリーカード → ツーペア → ワンペア → ハイカード
+        </dd>
+      </dl>
+      <div class="close-hint">タップで閉じる</div>
+    </div>
   </div>
 
   <!-- ===== LOBBY ===== -->
@@ -821,6 +945,16 @@ $("startBtn").addEventListener("click", () => send({ type: "start" }));
 $("nextBtn").addEventListener("click", () => send({ type: "next" }));
 $("leaveBtn").addEventListener("click", disconnect);
 $("leaveBtn2").addEventListener("click", disconnect);
+
+// Rules overlay open/close
+$("rulesBtn").addEventListener("click", () => {
+  $("rulesOverlay").classList.add("show");
+});
+$("rulesOverlay").addEventListener("click", (e) => {
+  // close when tapping outside the card itself (or anywhere — card click is also dismissed)
+  if (e.target.closest(".rules-card") && !e.target.classList.contains("close-hint")) return;
+  $("rulesOverlay").classList.remove("show");
+});
 
 document.querySelectorAll("#decisionButtons button").forEach(b => {
   b.addEventListener("click", () => send({ type: "decision", choice: b.dataset.choice }));
