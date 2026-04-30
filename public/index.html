@@ -134,61 +134,55 @@
     letter-spacing: -0.05em;
   }
 
-  /* ---------- Observation (forehead) ---------- */
-  .observation-screen {
-    align-items: center; justify-content: flex-start; text-align: center;
-    padding: 8px 4px;
-  }
-  .observation-hint {
-    font-size: 12px; letter-spacing: 3px; color: rgba(255,255,255,0.55);
-    margin-bottom: 8px;
-  }
-  .community-row {
-    display: flex; justify-content: center; gap: 4px;
-    flex-wrap: nowrap;
-    padding: 8px;
-    background: rgba(0,0,0,0.25);
-    border-radius: 12px;
-    border: 1px solid rgba(255,215,110,0.18);
-    margin-bottom: 14px;
-    width: 100%;
-    overflow-x: auto;
-  }
-  .community-card { width: 36px; aspect-ratio: 5/7; flex-shrink: 0; }
-  .hole-pair {
-    display: flex; gap: 12px;
-    width: 100%; justify-content: center;
-    padding: 0 6%;
-  }
-  .hole-card-wrap { width: 42%; aspect-ratio: 5 / 7; max-width: 220px; perspective: 800px; }
-  .observation-timer {
-    margin-top: 16px;
-    font-family: 'Inter', system-ui, sans-serif;
-    font-size: 22px; font-weight: 800; letter-spacing: 2px;
-    color: #ffd76e;
-  }
-
   /* ---------- Decision ---------- */
   .decision-screen {
     align-items: center; justify-content: flex-start; text-align: center;
-    padding: 14px;
+    padding: 12px 12px 16px;
+  }
+  .decision-timer {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 56px; font-weight: 900; line-height: 1;
+    background: linear-gradient(180deg, #ffd76e, #c69234);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 0 30px rgba(255,215,110,0.4);
+    margin-bottom: 10px; letter-spacing: -0.04em;
+    transition: color 0.2s;
+  }
+  .decision-timer.urgent {
+    background: linear-gradient(180deg, #ff5050, #c41e1e);
+    -webkit-background-clip: text; background-clip: text;
+    text-shadow: 0 0 30px rgba(255,80,80,0.6);
+    animation: pulse 0.5s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.08); }
+  }
+  .section-label {
+    font-size: 10px; letter-spacing: 4px;
+    color: rgba(255,255,255,0.55);
+    margin: 6px 0 6px;
+    text-transform: uppercase;
   }
   .decision-board {
-    display: flex; justify-content: center; gap: 4px;
+    display: flex; justify-content: center; gap: 5px;
     flex-wrap: nowrap;
-    padding: 8px;
-    background: rgba(0,0,0,0.25);
+    padding: 10px 8px;
+    background: rgba(0,0,0,0.3);
     border-radius: 12px;
-    border: 1px solid rgba(255,215,110,0.18);
-    margin-bottom: 22px;
+    border: 1px solid rgba(255,215,110,0.22);
+    margin-bottom: 12px;
     width: 100%;
   }
-  .decision-board .community-card { width: 38px; }
-  .decision-msg {
-    font-size: 16px; line-height: 1.6; margin-bottom: 24px;
-    color: rgba(255,255,255,0.85);
+  .community-card { aspect-ratio: 5/7; flex-shrink: 0; }
+  .decision-board .community-card { width: calc((100% - 8 * 5px) / 7); max-width: 64px; }
+  .hole-pair {
+    display: flex; gap: 10px;
+    width: 100%; justify-content: center;
+    padding: 0 12%;
+    margin-bottom: 22px;
   }
-  .decision-msg strong { color: #ffd76e; }
+  .hole-card-wrap { width: 32%; aspect-ratio: 5 / 7; max-width: 130px; perspective: 800px; }
   .decision-buttons { display: flex; gap: 14px; width: 100%; max-width: 380px; }
   .decision-buttons button {
     flex: 1;
@@ -368,27 +362,29 @@
   .face-letter { line-height: 0.88; }
   .face-suit { font-size: 0.42em; line-height: 1; opacity: 0.88; margin-top: 0.08em; }
 
-  /* Hole-pair (observation) sizing */
-  .hole-card-wrap .corner .rank { font-size: 42px; }
-  .hole-card-wrap .corner .suit-mini { font-size: 36px; }
-  .hole-card-wrap .pip { font-size: 38px; }
-  .hole-card-wrap .center-ace { font-size: 160px; }
-  .hole-card-wrap .center-face { font-size: 120px; }
+  /* Hole-pair (your hand) sizing */
+  .hole-card-wrap .corner .rank { font-size: 26px; }
+  .hole-card-wrap .corner .suit-mini { font-size: 22px; }
+  .hole-card-wrap .pip { font-size: 22px; }
+  .hole-card-wrap .center-ace { font-size: 90px; }
+  .hole-card-wrap .center-face { font-size: 64px; }
 
-  /* Community / reveal small card sizing */
-  .community-card .corner .rank,
+  /* Decision-board community card sizing (large, easy to read) */
+  .decision-board .community-card .corner .rank { font-size: 15px; }
+  .decision-board .community-card .corner .suit-mini { font-size: 12px; }
+  .decision-board .community-card .pip { font-size: 12px; }
+  .decision-board .community-card .center-ace { font-size: 40px; }
+  .decision-board .community-card .center-face { font-size: 30px; }
+
+  /* Reveal small card sizing */
   .reveal-cards .pcard .corner .rank,
   .reveal-board .community-card .corner .rank { font-size: 11px; }
-  .community-card .corner .suit-mini,
   .reveal-cards .pcard .corner .suit-mini,
   .reveal-board .community-card .corner .suit-mini { font-size: 9px; }
-  .community-card .pip,
   .reveal-cards .pcard .pip,
   .reveal-board .community-card .pip { font-size: 9px; }
-  .community-card .center-ace,
   .reveal-cards .pcard .center-ace,
   .reveal-board .community-card .center-ace { font-size: 30px; }
-  .community-card .center-face,
   .reveal-cards .pcard .center-face,
   .reveal-board .community-card .center-face { font-size: 22px; }
 
@@ -411,8 +407,14 @@
   .toast.show { opacity: 1; }
 
   @media (max-width: 380px) {
-    .community-card { width: 32px; }
-    .decision-board .community-card { width: 34px; }
+    .decision-board { gap: 3px; padding: 8px 6px; }
+    .decision-board .community-card { max-width: none; }
+    .decision-board .community-card .corner .rank { font-size: 13px; }
+    .decision-board .community-card .corner .suit-mini { font-size: 10px; }
+    .decision-board .community-card .center-ace { font-size: 32px; }
+    .decision-board .community-card .center-face { font-size: 24px; }
+    .hole-pair { padding: 0 6%; gap: 8px; }
+    .hole-card-wrap { width: 38%; }
     .reveal-board .community-card { width: 32px; }
     .reveal-cards .pcard { width: 32px; }
   }
@@ -456,21 +458,13 @@
     </div>
   </div>
 
-  <!-- ===== OBSERVATION ===== -->
-  <div class="screen observation-screen" id="observationScreen">
-    <div class="observation-hint">他人の手札と場の7枚を覚える</div>
-    <div class="community-row" id="observationCommunity"></div>
-    <div class="hole-pair" id="holePair"></div>
-    <div class="observation-timer" id="observationTimer">45</div>
-  </div>
-
   <!-- ===== DECISION ===== -->
   <div class="screen decision-screen" id="decisionScreen">
+    <div class="decision-timer" id="decisionTimer">15</div>
+    <div class="section-label">場のカード</div>
     <div class="decision-board" id="decisionCommunity"></div>
-    <div class="decision-msg" id="decisionMsg">
-      <strong>勝負 or フォールド</strong><br>
-      自分の手札は隠した。賭けるか降りるか
-    </div>
+    <div class="section-label">あなたの手札</div>
+    <div class="hole-pair" id="holePair"></div>
     <div class="decision-buttons" id="decisionButtons">
       <button class="btn-fight" data-choice="fight">勝負</button>
       <button class="btn-fold" data-choice="fold">フォールド</button>
@@ -502,8 +496,7 @@
 
 // ===== State =====
 const PHASES = {
-  LOBBY: "lobby", OBSERVATION: "observation",
-  DECISION: "decision", REVEAL: "reveal",
+  LOBBY: "lobby", DECISION: "decision", REVEAL: "reveal",
 };
 const STORAGE_KEY = "atlantic_v1";
 let ws = null;
@@ -642,7 +635,6 @@ function onStateUpdate() {
   const phase = serverState.phase;
   switch (phase) {
     case PHASES.LOBBY: renderLobby(); break;
-    case PHASES.OBSERVATION: renderObservation(); break;
     case PHASES.DECISION: renderDecision(); break;
     case PHASES.REVEAL: renderReveal(); break;
   }
@@ -679,41 +671,24 @@ function renderLobby() {
   }
 }
 
-// ===== Observation =====
-function renderObservation() {
-  showScreen("observation");
-  cleanupTimers();
-
-  // community
-  $("observationCommunity").innerHTML = (serverState.community || []).map(c =>
-    `<div class="community-card">${cardHTML(c, { flipped: true })}</div>`
-  ).join("");
-
-  // your hole cards (face up, for forehead display)
-  if (serverState.myHole && serverState.myHole.length === 2) {
-    $("holePair").innerHTML = serverState.myHole.map((c, i) =>
-      `<div class="hole-card-wrap">${cardHTML(c, { flipped: true, dealIn: true })}</div>`
-    ).join("");
-  } else {
-    $("holePair").innerHTML = "";
-  }
-
-  const update = () => {
-    const remain = Math.max(0, Math.ceil((serverState.phaseEndAt - Date.now()) / 1000));
-    $("observationTimer").textContent = `${remain} 秒`;
-  };
-  update();
-  timerInterval = setInterval(update, 250);
-}
-
 // ===== Decision =====
 function renderDecision() {
   showScreen("decision");
   cleanupTimers();
 
+  // community cards (bigger now)
   $("decisionCommunity").innerHTML = (serverState.community || []).map(c =>
     `<div class="community-card">${cardHTML(c, { flipped: true })}</div>`
   ).join("");
+
+  // your own hole cards (visible to you)
+  if (serverState.myHole && serverState.myHole.length === 2) {
+    $("holePair").innerHTML = serverState.myHole.map(c =>
+      `<div class="hole-card-wrap">${cardHTML(c, { flipped: true, dealIn: true })}</div>`
+    ).join("");
+  } else {
+    $("holePair").innerHTML = "";
+  }
 
   const me = (serverState.players || []).find(p => p.isYou);
   const decided = me && me.decided;
@@ -723,6 +698,21 @@ function renderDecision() {
   const totalPlayers = serverState.players.length;
   const decidedCount = serverState.players.filter(p => p.decided).length;
   $("decisionStatus").textContent = `決定: ${decidedCount} / ${totalPlayers} 人`;
+
+  // 15-second countdown — auto-fold handled server-side on timeout
+  const timer = $("decisionTimer");
+  const update = () => {
+    if (!serverState.phaseEndAt) {
+      timer.textContent = "—";
+      timer.classList.remove("urgent");
+      return;
+    }
+    const remain = Math.max(0, Math.ceil((serverState.phaseEndAt - Date.now()) / 1000));
+    timer.textContent = remain;
+    timer.classList.toggle("urgent", remain <= 5);
+  };
+  update();
+  timerInterval = setInterval(update, 250);
 }
 
 // ===== Reveal =====

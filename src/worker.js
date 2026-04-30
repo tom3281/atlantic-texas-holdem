@@ -1,11 +1,10 @@
 // ===== Constants =====
 const PHASES = {
   LOBBY: "lobby",
-  OBSERVATION: "observation",
   DECISION: "decision",
   REVEAL: "reveal",
 };
-const OBSERVATION_MS = 20_000;
+const DECISION_MS = 15_000;
 const MAX_PLAYERS = 8;
 
 const SUITS = [
@@ -212,7 +211,7 @@ export class GameRoom {
       case "start":
         if (playerId === this.hostId && this.phase === PHASES.LOBBY) {
           if (this.players.size < 2) return;
-          this.startObservation();
+          this.startDecision();
         }
         break;
       case "decision":
@@ -262,9 +261,9 @@ export class GameRoom {
     this.broadcast();
   }
 
-  startObservation() {
-    this.phase = PHASES.OBSERVATION;
-    this.phaseEndAt = Date.now() + OBSERVATION_MS;
+  startDecision() {
+    this.phase = PHASES.DECISION;
+    this.phaseEndAt = Date.now() + DECISION_MS;
     this.lastResult = null;
     const deck = buildDeck();
     for (const p of this.players.values()) {
@@ -274,15 +273,16 @@ export class GameRoom {
     this.community = [];
     for (let i = 0; i < 7; i++) this.community.push(deck.pop());
     this.clearTimer();
-    this.timer = setTimeout(() => this.startDecision(), OBSERVATION_MS);
+    this.timer = setTimeout(() => this.timeoutDecision(), DECISION_MS);
     this.broadcast();
   }
 
-  startDecision() {
-    this.phase = PHASES.DECISION;
-    this.phaseEndAt = null;
-    this.clearTimer();
-    this.broadcast();
+  timeoutDecision() {
+    // Anyone who didn't decide in time is auto-folded
+    for (const p of this.players.values()) {
+      if (!p.decision) p.decision = "fold";
+    }
+    this.endDecision();
   }
 
   endDecision() {
@@ -400,9 +400,7 @@ export class GameRoom {
     const me = this.players.get(playerId);
     const players = [...this.players.entries()].map(([id, p]) => {
       const isYou = id === playerId;
-      // Hole cards are kept private until REVEAL.
-      // OWN hole cards are sent to this player as `myHole` only during OBSERVATION
-      // (so the phone, held to forehead, displays them outward to other players).
+      // Other players' hole cards stay hidden until REVEAL.
       let hole = null;
       if (this.phase === PHASES.REVEAL) hole = p.hole;
       return {
@@ -415,8 +413,7 @@ export class GameRoom {
         isYou,
       };
     });
-    const showCommunity = this.phase === PHASES.OBSERVATION
-      || this.phase === PHASES.DECISION
+    const showCommunity = this.phase === PHASES.DECISION
       || this.phase === PHASES.REVEAL;
     return {
       type: "state",
@@ -427,7 +424,8 @@ export class GameRoom {
         you: playerId,
         phaseEndAt: this.phaseEndAt,
         community: showCommunity ? this.community : [],
-        myHole: (this.phase === PHASES.OBSERVATION && me) ? me.hole : null,
+        // YOUR own hole cards visible during DECISION (and remain visible at REVEAL)
+        myHole: (this.phase === PHASES.DECISION && me) ? me.hole : null,
         result: this.phase === PHASES.REVEAL ? this.lastResult : null,
       },
     };
