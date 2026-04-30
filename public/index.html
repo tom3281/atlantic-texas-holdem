@@ -343,11 +343,6 @@
   .corner .rank { line-height: 0.82; }
   .corner .suit-mini { line-height: 1; margin-top: 0.04em; opacity: 0.95; }
 
-  .center-pips {
-    position: absolute; inset: 22% 24%;
-    pointer-events: none;
-  }
-  .center-pips .pip { position: absolute; line-height: 1; color: inherit; }
   .center-ace {
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
@@ -362,31 +357,17 @@
   .face-letter { line-height: 0.88; }
   .face-suit { font-size: 0.42em; line-height: 1; opacity: 0.88; margin-top: 0.08em; }
 
-  /* Hole-pair (your hand) sizing */
-  .hole-card-wrap .corner .rank { font-size: 26px; }
-  .hole-card-wrap .corner .suit-mini { font-size: 22px; }
-  .hole-card-wrap .pip { font-size: 22px; }
-  .hole-card-wrap .center-ace { font-size: 90px; }
-  .hole-card-wrap .center-face { font-size: 64px; }
-
-  /* Decision-board community card sizing (large, easy to read) */
-  .decision-board .community-card .corner .rank { font-size: 15px; }
-  .decision-board .community-card .corner .suit-mini { font-size: 12px; }
-  .decision-board .community-card .pip { font-size: 12px; }
-  .decision-board .community-card .center-ace { font-size: 40px; }
-  .decision-board .community-card .center-face { font-size: 30px; }
-
-  /* Reveal small card sizing */
-  .reveal-cards .pcard .corner .rank,
-  .reveal-board .community-card .corner .rank { font-size: 11px; }
-  .reveal-cards .pcard .corner .suit-mini,
-  .reveal-board .community-card .corner .suit-mini { font-size: 9px; }
-  .reveal-cards .pcard .pip,
-  .reveal-board .community-card .pip { font-size: 9px; }
-  .reveal-cards .pcard .center-ace,
-  .reveal-board .community-card .center-ace { font-size: 30px; }
-  .reveal-cards .pcard .center-face,
-  .reveal-board .community-card .center-face { font-size: 22px; }
+  /* Container-query based font sizing — every card auto-scales to its
+     own container's width, so suits never overlap regardless of size. */
+  .community-card,
+  .hole-card-wrap,
+  .pcard {
+    container-type: inline-size;
+  }
+  .card .corner .rank { font-size: 24cqw; }
+  .card .corner .suit-mini { font-size: 20cqw; }
+  .card .center-ace { font-size: 70cqw; }
+  .card .center-face { font-size: 52cqw; }
 
   /* Status text */
   .status-line {
@@ -409,10 +390,6 @@
   @media (max-width: 380px) {
     .decision-board { gap: 3px; padding: 8px 6px; }
     .decision-board .community-card { max-width: none; }
-    .decision-board .community-card .corner .rank { font-size: 13px; }
-    .decision-board .community-card .corner .suit-mini { font-size: 10px; }
-    .decision-board .community-card .center-ace { font-size: 32px; }
-    .decision-board .community-card .center-face { font-size: 24px; }
     .hole-pair { padding: 0 6%; gap: 8px; }
     .hole-card-wrap { width: 38%; }
     .reveal-board .community-card { width: 32px; }
@@ -537,28 +514,14 @@ function showToast(msg, ms = 2500) {
 }
 
 // ===== Card rendering =====
-const PIP_LAYOUTS = {
-  "2":  [[10,50],[90,50]],
-  "3":  [[10,50],[50,50],[90,50]],
-  "4":  [[10,30],[10,70],[90,30],[90,70]],
-  "5":  [[10,30],[10,70],[50,50],[90,30],[90,70]],
-  "6":  [[10,30],[10,70],[50,30],[50,70],[90,30],[90,70]],
-  "7":  [[10,30],[10,70],[30,50],[50,30],[50,70],[90,30],[90,70]],
-  "8":  [[10,30],[10,70],[30,50],[50,30],[50,70],[70,50],[90,30],[90,70]],
-  "9":  [[10,30],[10,70],[35,30],[35,70],[50,50],[65,30],[65,70],[90,30],[90,70]],
-  "10": [[10,30],[10,70],[30,30],[30,70],[50,30],[50,70],[70,30],[70,70],[90,30],[90,70]],
-};
+// Simple design: corner rank/suit + a single big center suit (or face letter
+// for J/Q/K). Avoids pip-overlap issues at small sizes on mobile.
 function centerHTML(card) {
   const r = card.label, s = card.suit.sym;
-  if (r === "A") return `<div class="center-ace">${s}</div>`;
   if (["J","Q","K"].includes(r)) {
     return `<div class="center-face"><span class="face-letter">${r}</span><span class="face-suit">${s}</span></div>`;
   }
-  const layout = PIP_LAYOUTS[r] || [];
-  return `<div class="center-pips">${layout.map(([y, x]) => {
-    const rot = y > 50 ? " rotate(180deg)" : "";
-    return `<span class="pip" style="top:${y}%;left:${x}%;transform:translate(-50%,-50%)${rot}">${s}</span>`;
-  }).join("")}</div>`;
+  return `<div class="center-ace">${s}</div>`;
 }
 function cardHTML(card, options = {}) {
   if (!card) {
