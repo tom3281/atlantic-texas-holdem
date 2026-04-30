@@ -480,6 +480,11 @@ let ws = null;
 let serverState = null;
 let myInfo = { name: "", room: "" };
 let timerInterval = null;
+// Cache the rendered card identity to avoid re-creating DOM nodes (and
+// re-running deal-in animations) when only decision/timer state changes.
+let lastCommunityKey = "";
+let lastHoleKey = "";
+let lastRevealKey = "";
 
 const FUNNY_NAMES = [
   "酒豪", "ザル", "ベロベロ", "ほろ酔い", "下戸", "二日酔い", "顔面紅葉", "記憶喪失",
@@ -498,8 +503,11 @@ try {
 // ===== DOM helpers =====
 function $(id) { return document.getElementById(id); }
 function showScreen(name) {
+  const target = $(name + "Screen");
+  // No-op if we're already on this screen — avoids flicker from re-toggling active.
+  if (target.classList.contains("active")) return;
   document.querySelectorAll(".screen").forEach(el => el.classList.remove("active"));
-  $(name + "Screen").classList.add("active");
+  target.classList.add("active");
 }
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({
@@ -596,6 +604,15 @@ function disconnect() {
 function onStateUpdate() {
   if (!serverState) return;
   const phase = serverState.phase;
+  // Reset card-identity cache when leaving the decision/reveal phases so that
+  // cards are freshly rendered (with deal-in animation) on the next round.
+  if (phase !== PHASES.DECISION) {
+    lastCommunityKey = "";
+    lastHoleKey = "";
+  }
+  if (phase !== PHASES.REVEAL) {
+    lastRevealKey = "";
+  }
   switch (phase) {
     case PHASES.LOBBY: renderLobby(); break;
     case PHASES.DECISION: renderDecision(); break;
@@ -639,20 +656,31 @@ function renderDecision() {
   showScreen("decision");
   cleanupTimers();
 
-  // community cards (bigger now)
-  $("decisionCommunity").innerHTML = (serverState.community || []).map(c =>
-    `<div class="community-card">${cardHTML(c, { flipped: true })}</div>`
-  ).join("");
-
-  // your own hole cards (visible to you)
-  if (serverState.myHole && serverState.myHole.length === 2) {
-    $("holePair").innerHTML = serverState.myHole.map(c =>
-      `<div class="hole-card-wrap">${cardHTML(c, { flipped: true, dealIn: true })}</div>`
+  // community cards — only re-render DOM if the dealt cards actually changed
+  const community = serverState.community || [];
+  const communityKey = community.map(c => `${c.v}-${c.suit.sym}`).join(",");
+  if (communityKey !== lastCommunityKey) {
+    $("decisionCommunity").innerHTML = community.map(c =>
+      `<div class="community-card">${cardHTML(c, { flipped: true })}</div>`
     ).join("");
-  } else {
-    $("holePair").innerHTML = "";
+    lastCommunityKey = communityKey;
   }
 
+  // your own hole cards — only re-render DOM if dealt cards changed
+  const hole = serverState.myHole || [];
+  const holeKey = hole.map(c => `${c.v}-${c.suit.sym}`).join(",");
+  if (holeKey !== lastHoleKey) {
+    if (hole.length === 2) {
+      $("holePair").innerHTML = hole.map(c =>
+        `<div class="hole-card-wrap">${cardHTML(c, { flipped: true, dealIn: true })}</div>`
+      ).join("");
+    } else {
+      $("holePair").innerHTML = "";
+    }
+    lastHoleKey = holeKey;
+  }
+
+  // these can change on every state update without affecting cards
   const me = (serverState.players || []).find(p => p.isYou);
   const decided = me && me.decided;
   $("decisionButtons").style.display = decided ? "none" : "";
@@ -685,6 +713,26 @@ function renderReveal() {
   const result = serverState.result || {};
   const players = serverState.players;
   const community = serverState.community || [];
+
+  // Build a key that captures the full reveal state. If unchanged, skip
+  // re-rendering DOM (avoids cards "flashing" if the room re-broadcasts).
+  const revealKey = JSON.stringify({
+    community: community.map(c => `${c.v}-${c.suit.sym}`),
+    players: players.map(p => ({
+      id: p.id,
+      decision: p.decision,
+      hole: (p.hole || []).map(c => `${c.v}-${c.suit.sym}`),
+    })),
+    drinks: result.drinks || {},
+    winners: result.winners || [],
+    losers: result.losers || [],
+  });
+
+  const isHost = serverState.you === serverState.hostId;
+  $("nextBtn").style.display = isHost ? "" : "none";
+
+  if (revealKey === lastRevealKey) return;
+  lastRevealKey = revealKey;
 
   // Winner banner
   const winners = (result.winners || []).map(id => players.find(p => p.id === id)).filter(Boolean);
@@ -749,9 +797,6 @@ function renderReveal() {
       </div>
     `;
   }).join("");
-
-  const isHost = serverState.you === serverState.hostId;
-  $("nextBtn").style.display = isHost ? "" : "none";
 }
 
 function cleanupTimers() {
