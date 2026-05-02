@@ -664,6 +664,24 @@ let lastCommunityKey = "";
 let lastHoleKey = "";
 let lastRevealKey = "";
 
+// Screen Wake Lock — keep the display on during a session. Auto-released
+// when the tab is hidden; we re-acquire on visibilitychange.
+let wakeLock = null;
+async function requestWakeLock() {
+  if (!("wakeLock" in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => { wakeLock = null; });
+  } catch {
+    /* user denied or browser blocked — silent */
+  }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !wakeLock && ws) {
+    requestWakeLock();
+  }
+});
+
 // Stable per-browser-profile id. Same id across tabs in the same browser
 // profile, so two tabs can't double-occupy a seat.
 function getOrCreateClientId() {
@@ -826,6 +844,7 @@ function disconnect() {
   reconnectAttempts = 0;
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (ws) { try { ws.close(1000, "user disconnect"); } catch {} ws = null; }
+  if (wakeLock) { try { wakeLock.release(); } catch {} wakeLock = null; }
   cleanupTimers();
   showScreen("enter");
 }
@@ -1057,6 +1076,8 @@ $("enterBtn").addEventListener("click", () => {
     showToast("ルームコードは4〜6文字の英数字");
     return;
   }
+  // Tap-driven user gesture — best moment to grab the screen wake lock
+  requestWakeLock();
   connect(name, room);
 });
 
