@@ -654,11 +654,30 @@ let ws = null;
 let serverState = null;
 let myInfo = { name: "", room: "" };
 let timerInterval = null;
+let manualClose = false;     // user pressed disconnect — don't auto-reconnect
+let reconnectTimer = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT = 6;
 // Cache the rendered card identity to avoid re-creating DOM nodes (and
 // re-running deal-in animations) when only decision/timer state changes.
 let lastCommunityKey = "";
 let lastHoleKey = "";
 let lastRevealKey = "";
+
+// Stable per-browser-profile id. Same id across tabs in the same browser
+// profile, so two tabs can't double-occupy a seat.
+function getOrCreateClientId() {
+  const KEY = "atlantic_clientId_v1";
+  let id = "";
+  try { id = localStorage.getItem(KEY) || ""; } catch {}
+  if (!/^[A-Za-z0-9-]{8,64}$/.test(id)) {
+    id = (crypto && crypto.randomUUID) ? crypto.randomUUID()
+      : Array.from({length: 32}, () => "0123456789abcdef"[Math.floor(Math.random()*16)]).join("");
+    try { localStorage.setItem(KEY, id); } catch {}
+  }
+  return id;
+}
+const CLIENT_ID = getOrCreateClientId();
 
 const FUNNY_NAMES = [
   "酒豪", "ザル", "ベロベロ", "ほろ酔い", "下戸", "二日酔い", "顔面紅葉", "記憶喪失",
@@ -731,14 +750,21 @@ function cardKey(c) { return c ? `${c.v}-${c.suit.sym}` : ""; }
 // ===== Connection =====
 function connect(name, room) {
   myInfo.name = name; myInfo.room = room;
+  manualClose = false;
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ name })); } catch {}
 
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const url = `${proto}://${location.host}/ws?room=${encodeURIComponent(room)}&name=${encodeURIComponent(name)}`;
+  const url = `${proto}://${location.host}/ws`
+    + `?room=${encodeURIComponent(room)}`
+    + `&name=${encodeURIComponent(name)}`
+    + `&clientId=${encodeURIComponent(CLIENT_ID)}`;
   ws = new WebSocket(url);
   ws.addEventListener("open", () => {
-    showScreen("lobby");
+    reconnectAttempts = 0;
     $("roomCodeDisplay").textContent = room;
+    // Don't force-show lobby — onStateUpdate will pick the right screen
+    // based on the server-reported phase (covers mid-game reconnect).
   });
   ws.addEventListener("message", (e) => {
     let msg;
@@ -750,16 +776,43 @@ function connect(name, room) {
   });
   ws.addEventListener("close", (e) => {
     cleanupTimers();
-    if (e.code === 1006 || e.code === 1011) {
-      showToast("接続が切れました");
-    } else if (e.code === 4030 || e.code === 4023) {
-      showToast("ルームに入れませんでした");
-    }
-    showScreen("enter");
     ws = null;
+
+    // Replaced by another tab on the same device — don't reconnect
+    if (e.code === 4002) {
+      manualClose = true;
+      reconnectAttempts = 0;
+      showToast("別のタブで開かれました");
+      showScreen("enter");
+      return;
+    }
+    // Hard rejections — server said no
+    if (e.code === 4030 || e.code === 4023 || e.code === 1008) {
+      showToast("ルームに入れませんでした");
+      showScreen("enter");
+      return;
+    }
+    // User-initiated close
+    if (manualClose) {
+      reconnectAttempts = 0;
+      showScreen("enter");
+      return;
+    }
+    // Auto-reconnect (network blip, server restart) — server preserves the
+    // seat for ~15s on disconnect, so the player picks up where they were.
+    if (myInfo.room && myInfo.name && reconnectAttempts < MAX_RECONNECT) {
+      reconnectAttempts++;
+      const backoff = Math.min(500 * Math.pow(2, reconnectAttempts - 1), 4000);
+      showToast(`再接続中... (${reconnectAttempts}/${MAX_RECONNECT})`);
+      reconnectTimer = setTimeout(() => connect(myInfo.name, myInfo.room), backoff);
+      return;
+    }
+    showToast("接続が切れました");
+    showScreen("enter");
+    reconnectAttempts = 0;
   });
   ws.addEventListener("error", () => {
-    showToast("接続エラー");
+    // close handler will fire next — let it decide whether to reconnect
   });
 }
 
@@ -769,7 +822,10 @@ function send(msg) {
   }
 }
 function disconnect() {
-  if (ws) { try { ws.close(); } catch {} ws = null; }
+  manualClose = true;
+  reconnectAttempts = 0;
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  if (ws) { try { ws.close(1000, "user disconnect"); } catch {} ws = null; }
   cleanupTimers();
   showScreen("enter");
 }

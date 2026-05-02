@@ -6,6 +6,7 @@ const PHASES = {
 };
 const DECISION_MS = 15_000;
 const MAX_PLAYERS = 8;
+const GRACE_MS = 15_000; // keep a disconnected player around this long for reconnect
 
 const SUITS = [
   { sym: "♠", color: "black" },
@@ -170,35 +171,66 @@ export class GameRoom {
     }
     const url = new URL(request.url);
     const name = (url.searchParams.get("name") || "").trim().slice(0, 20);
+    const clientId = (url.searchParams.get("clientId") || "").trim();
     if (!name) return new Response("Missing name", { status: 400 });
-    if (this.players.size >= MAX_PLAYERS && this.phase === PHASES.LOBBY) {
-      return new Response("Room full", { status: 403 });
+    if (!/^[A-Za-z0-9-]{8,64}$/.test(clientId)) {
+      return new Response("Missing or invalid clientId", { status: 400 });
     }
-    if (this.phase !== PHASES.LOBBY) {
-      return new Response("Game in progress", { status: 423 });
+
+    const existing = this.players.get(clientId);
+
+    if (existing) {
+      // Reconnect / takeover: kick any prior socket for this clientId
+      // and reuse the existing seat (preserves cards, decision, drinkCount).
+      const prior = this.sessions.get(clientId);
+      if (prior) {
+        try { prior.ws.close(4002, "Replaced by new connection"); } catch {}
+        this.sessions.delete(clientId);
+      }
+      // Reconnected in time — cancel the pending grace removal
+      if (existing.removeTimer) {
+        clearTimeout(existing.removeTimer);
+        existing.removeTimer = null;
+      }
+      // Allow renaming on reconnect
+      existing.name = name;
+    } else {
+      // Brand-new participant — apply join restrictions
+      if (this.players.size >= MAX_PLAYERS && this.phase === PHASES.LOBBY) {
+        return new Response("Room full", { status: 403 });
+      }
+      if (this.phase !== PHASES.LOBBY) {
+        return new Response("Game in progress", { status: 423 });
+      }
+      this.players.set(clientId, {
+        name,
+        hole: null,
+        decision: null,
+        drinkCount: 0,
+        removeTimer: null,
+      });
+      if (!this.hostId) this.hostId = clientId;
     }
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     server.accept();
 
-    const playerId = crypto.randomUUID();
-    const sessionId = playerId;
-    this.sessions.set(sessionId, { ws: server, playerId });
-    this.players.set(playerId, {
-      name,
-      hole: null,
-      decision: null,
-      drinkCount: 0,
-    });
-    if (!this.hostId) this.hostId = playerId;
+    this.sessions.set(clientId, { ws: server, playerId: clientId });
 
     server.addEventListener("message", async (e) => {
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
-      await this.handleMessage(playerId, msg);
+      await this.handleMessage(clientId, msg);
     });
-    const onClose = () => this.handleDisconnect(sessionId);
+    const onClose = () => {
+      // Ignore close events from sockets that were already replaced by a newer
+      // connection for the same clientId.
+      const sess = this.sessions.get(clientId);
+      if (sess && sess.ws === server) {
+        this.handleDisconnect(clientId);
+      }
+    };
     server.addEventListener("close", onClose);
     server.addEventListener("error", onClose);
 
@@ -234,31 +266,48 @@ export class GameRoom {
     }
   }
 
-  handleDisconnect(sessionId) {
-    const session = this.sessions.get(sessionId);
-    if (!session) return;
-    this.sessions.delete(sessionId);
-    this.players.delete(session.playerId);
-    if (this.hostId === session.playerId) {
+  handleDisconnect(playerId) {
+    this.sessions.delete(playerId);
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    // In LOBBY, drop immediately — no game state worth preserving
+    if (this.phase === PHASES.LOBBY) {
+      this.removePlayer(playerId);
+      this.broadcast();
+      return;
+    }
+
+    // In active game, hold the seat for GRACE_MS so the client can reconnect
+    if (player.removeTimer) clearTimeout(player.removeTimer);
+    player.removeTimer = setTimeout(() => {
+      player.removeTimer = null;
+      this.removePlayer(playerId);
+      if (this.players.size === 0) {
+        this.clearTimer();
+        this.phase = PHASES.LOBBY;
+        this.lastResult = null;
+        return;
+      }
+      if (this.players.size < 2 && this.phase !== PHASES.LOBBY) {
+        this.resetToLobby();
+        return;
+      }
+      if (this.phase === PHASES.DECISION
+          && [...this.players.values()].every(pl => pl.decision)) {
+        this.endDecision();
+        return;
+      }
+      this.broadcast();
+    }, GRACE_MS);
+    this.broadcast();
+  }
+
+  removePlayer(playerId) {
+    this.players.delete(playerId);
+    if (this.hostId === playerId) {
       this.hostId = this.players.keys().next().value || null;
     }
-    if (this.players.size < 2 && this.phase !== PHASES.LOBBY) {
-      this.resetToLobby();
-      return;
-    }
-    if (this.players.size === 0) {
-      this.clearTimer();
-      this.phase = PHASES.LOBBY;
-      this.lastResult = null;
-      return;
-    }
-    // If we were waiting on this player to decide, check completion
-    if (this.phase === PHASES.DECISION && this.players.size > 0
-        && [...this.players.values()].every(pl => pl.decision)) {
-      this.endDecision();
-      return;
-    }
-    this.broadcast();
   }
 
   startDecision() {
