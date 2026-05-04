@@ -172,6 +172,8 @@ export class GameRoom {
     const url = new URL(request.url);
     const name = (url.searchParams.get("name") || "").trim().slice(0, 20);
     const clientId = (url.searchParams.get("clientId") || "").trim();
+    // Validation rejections stay as HTTP — these are programmer errors, not
+    // user-facing room conditions, and the client never recovers from them.
     if (!name) return new Response("Missing name", { status: 400 });
     if (!/^[A-Za-z0-9-]{8,64}$/.test(clientId)) {
       return new Response("Missing or invalid clientId", { status: 400 });
@@ -179,29 +181,37 @@ export class GameRoom {
 
     const existing = this.players.get(clientId);
 
-    if (existing) {
-      // Reconnect / takeover: kick any prior socket for this clientId
-      // and reuse the existing seat (preserves cards, decision, drinkCount).
-      const prior = this.sessions.get(clientId);
-      if (prior) {
-        try { prior.ws.close(4002, "Replaced by new connection"); } catch {}
-        this.sessions.delete(clientId);
+    // Decide acceptance up front so we can reject via a WebSocket close code
+    // (HTTP 4xx upgrade failures surface to the browser as opaque close 1006,
+    // which our client can't distinguish from a transient network blip).
+    let rejectCode = 0; // 0 = accept
+    let rejectReason = "";
+    if (!existing) {
+      if (this.players.size >= MAX_PLAYERS && this.phase === PHASES.LOBBY) {
+        rejectCode = 4030; rejectReason = "Room full";
+      } else if (this.phase !== PHASES.LOBBY) {
+        rejectCode = 4023; rejectReason = "Game in progress";
       }
-      // Reconnected in time — cancel the pending grace removal
+    }
+
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    server.accept();
+
+    if (rejectCode) {
+      try { server.close(rejectCode, rejectReason); } catch {}
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
+    if (existing) {
+      // Reconnect / takeover: reuse the existing seat (preserves cards,
+      // decision, drinkCount). Cancel pending grace removal if any.
       if (existing.removeTimer) {
         clearTimeout(existing.removeTimer);
         existing.removeTimer = null;
       }
-      // Allow renaming on reconnect
-      existing.name = name;
+      existing.name = name; // allow renaming on reconnect
     } else {
-      // Brand-new participant — apply join restrictions
-      if (this.players.size >= MAX_PLAYERS && this.phase === PHASES.LOBBY) {
-        return new Response("Room full", { status: 403 });
-      }
-      if (this.phase !== PHASES.LOBBY) {
-        return new Response("Game in progress", { status: 423 });
-      }
       this.players.set(clientId, {
         name,
         hole: null,
@@ -212,10 +222,11 @@ export class GameRoom {
       if (!this.hostId) this.hostId = clientId;
     }
 
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
-    server.accept();
-
+    // Capture (but don't yet close) the prior session. We must register the
+    // new session FIRST so that the prior socket's close handler — which may
+    // fire synchronously from close() — sees `sess.ws !== server` and skips
+    // handleDisconnect.
+    const prior = existing ? this.sessions.get(clientId) : null;
     this.sessions.set(clientId, { ws: server, playerId: clientId });
 
     server.addEventListener("message", async (e) => {
@@ -234,12 +245,25 @@ export class GameRoom {
     server.addEventListener("close", onClose);
     server.addEventListener("error", onClose);
 
+    if (prior) {
+      try { prior.ws.close(4002, "Replaced by new connection"); } catch {}
+    }
+
     this.broadcast();
     return new Response(null, { status: 101, webSocket: client });
   }
 
   async handleMessage(playerId, msg) {
     switch (msg.type) {
+      case "ping": {
+        // Liveness probe — keeps the client's heartbeat happy during quiet
+        // periods (e.g. lobby) and makes silent-dead sockets fail fast.
+        const sess = this.sessions.get(playerId);
+        if (sess) {
+          try { sess.ws.send(JSON.stringify({ type: "pong" })); } catch {}
+        }
+        break;
+      }
       case "start":
         if (playerId === this.hostId && this.phase === PHASES.LOBBY) {
           if (this.players.size < 2) return;

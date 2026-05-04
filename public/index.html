@@ -513,6 +513,26 @@
   }
   .btn-link-text:active { color: #ffd76e; }
 
+  /* Version tag — small, faint, bottom-of-screen so the deployed build is
+     visible at a glance without competing with the UI. */
+  .version-tag {
+    margin-top: 14px;
+    text-align: center;
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: rgba(255,255,255,0.35);
+    font-family: 'Inter', system-ui, monospace;
+  }
+  .version-corner {
+    position: fixed; bottom: 6px; right: 10px;
+    z-index: 50;
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: rgba(255,255,255,0.3);
+    font-family: 'Inter', system-ui, monospace;
+    pointer-events: none;
+  }
+
   /* Toast */
   .toast {
     position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
@@ -554,6 +574,7 @@
     </div>
     <button class="btn btn-primary" id="enterBtn">JOIN</button>
     <button class="btn-link-text" id="rulesBtn">ルールを見る</button>
+    <div class="version-tag">v1.1.0 · reconnect-fix</div>
   </div>
 
   <!-- ===== RULES OVERLAY ===== -->
@@ -641,6 +662,7 @@
 </div>
 
 <div class="toast" id="toast"></div>
+<div class="version-corner">v1.1.0</div>
 
 <script>
 "use strict";
@@ -658,6 +680,17 @@ let manualClose = false;     // user pressed disconnect — don't auto-reconnect
 let reconnectTimer = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT = 6;
+// Decision messages are stashed here when the user clicks while the socket
+// isn't OPEN (mid-reconnect). The most recent stash is flushed as soon as a
+// new socket opens, so a click made during a brief blip isn't lost.
+let pendingDecision = null;
+// Heartbeat — detects "silent dead" sockets where the browser still reports
+// readyState === OPEN but no traffic actually flows. If we don't see ANY
+// message from the server within HEARTBEAT_TIMEOUT_MS, we force a reconnect.
+let heartbeatTimer = null;
+let lastServerMessageAt = 0;
+const HEARTBEAT_INTERVAL_MS = 5_000;
+const HEARTBEAT_TIMEOUT_MS = 20_000;
 // Cache the rendered card identity to avoid re-creating DOM nodes (and
 // re-running deal-in animations) when only decision/timer state changes.
 let lastCommunityKey = "";
@@ -677,10 +710,34 @@ async function requestWakeLock() {
   }
 }
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !wakeLock && ws) {
-    requestWakeLock();
+  if (document.visibilityState !== "visible") return;
+  if (!wakeLock && ws) requestWakeLock();
+  // iOS/Android often kill background WebSockets without firing close on
+  // resume. If we have an active session but the socket is in a non-OPEN
+  // state, kick off a reconnect.
+  if (myInfo.room && myInfo.name && !manualClose) {
+    if (!ws || ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
+      forceReconnect("resume");
+    }
   }
 });
+
+function forceReconnect(reason) {
+  if (manualClose) return;
+  if (reconnectTimer) return; // a reconnect is already scheduled
+  // Drop the old socket (if any). Null `ws` here so any late close event from
+  // it sees `ws !== sock` in its handler and stays silent — that prevents a
+  // double reconnect.
+  if (ws) {
+    const old = ws;
+    ws = null;
+    try { old.close(4001, reason || "forced"); } catch {}
+  }
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect(myInfo.name, myInfo.room);
+  }, 200);
+}
 
 // Stable per-browser-profile id. Same id across tabs in the same browser
 // profile, so two tabs can't double-occupy a seat.
@@ -777,14 +834,29 @@ function connect(name, room) {
     + `?room=${encodeURIComponent(room)}`
     + `&name=${encodeURIComponent(name)}`
     + `&clientId=${encodeURIComponent(CLIENT_ID)}`;
-  ws = new WebSocket(url);
-  ws.addEventListener("open", () => {
+  // Capture the socket in a local — handlers reference `sock`, not the global
+  // `ws`, so a late close event from a stale socket can't clobber a newer one.
+  const sock = new WebSocket(url);
+  ws = sock;
+  sock.addEventListener("open", () => {
+    if (ws !== sock) return; // already replaced — ignore
     reconnectAttempts = 0;
+    lastServerMessageAt = Date.now();
+    startHeartbeat();
     $("roomCodeDisplay").textContent = room;
+    // If the user clicked 勝負/フォールド while we were disconnected, send it
+    // now so the click isn't lost.
+    if (pendingDecision) {
+      const choice = pendingDecision;
+      pendingDecision = null;
+      try { sock.send(JSON.stringify({ type: "decision", choice })); } catch {}
+    }
     // Don't force-show lobby — onStateUpdate will pick the right screen
     // based on the server-reported phase (covers mid-game reconnect).
   });
-  ws.addEventListener("message", (e) => {
+  sock.addEventListener("message", (e) => {
+    if (ws !== sock) return; // stale socket — ignore
+    lastServerMessageAt = Date.now();
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
     if (msg.type === "state") {
@@ -792,44 +864,72 @@ function connect(name, room) {
       onStateUpdate();
     }
   });
-  ws.addEventListener("close", (e) => {
-    cleanupTimers();
-    ws = null;
+  sock.addEventListener("close", (e) => {
+    // Only mutate global state if THIS socket is still the current one — a
+    // stale close (e.g. arriving after a fast reconnect already replaced ws)
+    // must not clobber a healthy newer socket.
+    const isCurrent = ws === sock;
+    if (isCurrent) {
+      cleanupTimers();
+      stopHeartbeat();
+      ws = null;
+    }
 
     // Replaced by another tab on the same device — don't reconnect
     if (e.code === 4002) {
-      manualClose = true;
-      reconnectAttempts = 0;
-      showToast("別のタブで開かれました");
-      showScreen("enter");
+      if (isCurrent) {
+        manualClose = true;
+        reconnectAttempts = 0;
+        pendingDecision = null;
+        showToast("別のタブで開かれました");
+        showScreen("enter");
+      }
       return;
     }
-    // Hard rejections — server said no
+    // Hard rejections — server said no (room full / game in progress / bad input)
     if (e.code === 4030 || e.code === 4023 || e.code === 1008) {
-      showToast("ルームに入れませんでした");
-      showScreen("enter");
+      if (isCurrent) {
+        manualClose = true;
+        reconnectAttempts = 0;
+        pendingDecision = null;
+        showToast(e.code === 4030 ? "ルームが満員です"
+          : e.code === 4023 ? "ゲームが進行中で参加できません"
+          : "ルームに入れませんでした");
+        showScreen("enter");
+      }
       return;
     }
     // User-initiated close
     if (manualClose) {
-      reconnectAttempts = 0;
-      showScreen("enter");
+      if (isCurrent) {
+        reconnectAttempts = 0;
+        pendingDecision = null;
+        showScreen("enter");
+      }
       return;
     }
     // Auto-reconnect (network blip, server restart) — server preserves the
     // seat for ~15s on disconnect, so the player picks up where they were.
-    if (myInfo.room && myInfo.name && reconnectAttempts < MAX_RECONNECT) {
+    // Only the current socket schedules reconnects; a stale close is silent.
+    if (isCurrent && myInfo.room && myInfo.name && reconnectAttempts < MAX_RECONNECT) {
       reconnectAttempts++;
       const backoff = Math.min(500 * Math.pow(2, reconnectAttempts - 1), 4000);
       showToast(`再接続中... (${reconnectAttempts}/${MAX_RECONNECT})`);
-      reconnectTimer = setTimeout(() => connect(myInfo.name, myInfo.room), backoff);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect(myInfo.name, myInfo.room);
+      }, backoff);
       return;
     }
-    showToast("接続が切れました");
-    showScreen("enter");
-    reconnectAttempts = 0;
+    if (isCurrent) {
+      showToast("接続が切れました");
+      pendingDecision = null;
+      showScreen("enter");
+      reconnectAttempts = 0;
+    }
   });
-  ws.addEventListener("error", () => {
+  sock.addEventListener("error", () => {
     // close handler will fire next — let it decide whether to reconnect
   });
 }
@@ -837,12 +937,34 @@ function connect(name, room) {
 function send(msg) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(msg));
+    return true;
   }
+  return false;
 }
+
+// Periodically ping the server and verify a response arrived. If we don't
+// hear ANY message back for HEARTBEAT_TIMEOUT_MS, the socket is silently dead
+// even though readyState may still report OPEN — force a reconnect.
+function startHeartbeat() {
+  stopHeartbeat();
+  heartbeatTimer = setInterval(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    try { ws.send(JSON.stringify({ type: "ping" })); } catch {}
+    if (Date.now() - lastServerMessageAt > HEARTBEAT_TIMEOUT_MS) {
+      forceReconnect("heartbeat-timeout");
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+}
+function stopHeartbeat() {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
 function disconnect() {
   manualClose = true;
   reconnectAttempts = 0;
+  pendingDecision = null;
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  stopHeartbeat();
   if (ws) { try { ws.close(1000, "user disconnect"); } catch {} ws = null; }
   if (wakeLock) { try { wakeLock.release(); } catch {} wakeLock = null; }
   cleanupTimers();
@@ -1097,7 +1219,22 @@ $("rulesOverlay").addEventListener("click", (e) => {
 });
 
 document.querySelectorAll("#decisionButtons button").forEach(b => {
-  b.addEventListener("click", () => send({ type: "decision", choice: b.dataset.choice }));
+  b.addEventListener("click", () => {
+    const choice = b.dataset.choice;
+    // Optimistically lock the UI so the user sees their choice register
+    // immediately, even if the message has to wait for a reconnect.
+    $("decisionButtons").style.display = "none";
+    $("decisionLocked").style.display = "";
+    const sent = send({ type: "decision", choice });
+    if (!sent) {
+      // Socket isn't OPEN — stash the choice; it'll be flushed when the new
+      // socket opens (auto-reconnect or the user-pressed-mid-blip case).
+      pendingDecision = choice;
+      showToast("再接続待ち…決定は送信予定です", 2000);
+      // Nudge a reconnect so the message goes out as soon as possible.
+      forceReconnect("send-while-closed");
+    }
+  });
 });
 
 document.addEventListener("gesturestart", e => e.preventDefault());
